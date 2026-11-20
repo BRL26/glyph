@@ -28,6 +28,23 @@ public final class Prefs {
 
     public static final int BEHAVIOR_COUNT = Behavior.COUNT;
 
+    public static final int AUTOGEN_NOTE_MAP = 0;
+    public static final int AUTOGEN_BEATS = 1;
+    public static final int AUTOGEN_SMOOTH = 2;
+    public static final int AUTOGEN_FREQUENCY = 3;
+    public static final int AUTOGEN_PATTERN = 4;
+    public static final int AUTOGEN_COUNT = 5;
+    public static final String[] AUTOGEN_NAMES = {
+            "Note map", "Beats", "Smooth", "Frequency", "Pattern"
+    };
+    public static final String[] AUTOGEN_DESCRIPTIONS = {
+            "Each detected pitch gets its own LED",
+            "Beats mode from the website auto-generator",
+            "The same generator with anti-flicker smoothing",
+            "Frequency bands mapped onto the three strips",
+            "Website Pattern wave driven by detected beats"
+    };
+
     private Prefs() {
     }
 
@@ -150,6 +167,42 @@ public final class Prefs {
 
     public static void setMaster(Context context, boolean value) {
         sp(context).edit().putBoolean("master", value).apply();
+    }
+
+    // ---------------------------------------------------------- output gate
+
+    /** Category/monitor gates. They never change zone assignments. */
+    public static boolean gate(Context context, String key) {
+        return sp(context).getBoolean(key, true);
+    }
+
+    public static void setGate(Context context, String key, boolean value) {
+        sp(context).edit().putBoolean(key, value).apply();
+    }
+
+    public static boolean allOff(Context context) {
+        return sp(context).getBoolean("all_off", false);
+    }
+
+    public static void setAllOff(Context context, boolean value) {
+        sp(context).edit().putBoolean("all_off", value).apply();
+    }
+
+    public static boolean glyphLights(Context context) {
+        return sp(context).getBoolean("glyph_lights", false);
+    }
+
+    public static void setGlyphLights(Context context, boolean value) {
+        sp(context).edit().putBoolean("glyph_lights", value).apply();
+    }
+
+    /** Persistent, manual music visualizer. It is armed until explicitly off. */
+    public static boolean visualizer(Context context) {
+        return sp(context).getBoolean("visualizer", false);
+    }
+
+    public static void setVisualizer(Context context, boolean value) {
+        sp(context).edit().putBoolean("visualizer", value).apply();
     }
 
     /** Keep the stock glyph package disabled after a reboot. */
@@ -387,6 +440,16 @@ public final class Prefs {
     }
 
     // ------------------------------------------------------------- style
+
+    public static int autogenMode(Context context) {
+        return clamp(sp(context).getInt("autogen_mode", AUTOGEN_NOTE_MAP),
+                0, AUTOGEN_COUNT - 1);
+    }
+
+    public static void setAutogenMode(Context context, int value) {
+        sp(context).edit().putInt("autogen_mode",
+                clamp(value, 0, AUTOGEN_COUNT - 1)).apply();
+    }
 
     public static int style(Context context) {
         return sp(context).getInt("style", STYLE_PULSE);

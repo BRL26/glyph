@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Glyph</string>
+    <string name="widget_description">Control glyph gates, lights and the live music visualizer.</string>
+    <string name="tile_music">Music glyphs</string>
+    <string name="tile_volume">Volume glyphs</string>
+    <string name="tile_battery">Battery glyphs</string>
+    <string name="tile_ringtone">Ringtone glyphs</string>
+    <string name="tile_glyphs">Glyph visualizer</string>
+    <string name="tile_all_off">All glyphs off</string>
+    <string name="tile_lights">Glyph lights</string>
 </resources>

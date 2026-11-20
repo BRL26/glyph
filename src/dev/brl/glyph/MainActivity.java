@@ -24,6 +24,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
@@ -44,21 +45,21 @@ import java.util.Locale;
 
 public final class MainActivity extends Activity {
 
-    // Material 3 dark baseline palette.
-    private static final int BG = 0xFF141218;
-    private static final int SURFACE = 0xFF1D1B20;
-    private static final int SURFACE_2 = 0xFF211F26;
-    private static final int SURFACE_3 = 0xFF2B2930;
-    private static final int PRIMARY = 0xFFD0BCFF;
-    private static final int ON_PRIMARY = 0xFF381E72;
-    private static final int PRIMARY_CONTAINER = 0xFF4F378B;
-    private static final int ON_PRIMARY_CONTAINER = 0xFFEADDFF;
-    private static final int SECONDARY = 0xFFCCC2DC;
-    private static final int SECONDARY_CONTAINER = 0xFF4A4458;
-    private static final int ON_SECONDARY_CONTAINER = 0xFFE8DEF8;
-    private static final int ON_SURFACE = 0xFFE6E0E9;
-    private static final int VARIANT = 0xFFCAC4D0;
-    private static final int OUTLINE = 0xFF938F99;
+    // Resolved from the phone's wallpaper-derived Material You palette.
+    private int BG;
+    private int SURFACE;
+    private int SURFACE_2;
+    private int SURFACE_3;
+    private int PRIMARY;
+    private int ON_PRIMARY;
+    private int PRIMARY_CONTAINER;
+    private int ON_PRIMARY_CONTAINER;
+    private int SECONDARY;
+    private int SECONDARY_CONTAINER;
+    private int ON_SECONDARY_CONTAINER;
+    private int ON_SURFACE;
+    private int VARIANT;
+    private int OUTLINE;
 
     private static final int STOCK_ENABLED = Stock.ENABLED;
     private static final int STOCK_DISABLED = Stock.DISABLED;
@@ -86,10 +87,31 @@ public final class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Palette palette = Palette.of(this);
+        BG = palette.background;
+        SURFACE = palette.surface;
+        SURFACE_2 = palette.surface2;
+        SURFACE_3 = palette.surface3;
+        PRIMARY = palette.primary;
+        ON_PRIMARY = palette.onPrimary;
+        PRIMARY_CONTAINER = palette.primaryContainer;
+        ON_PRIMARY_CONTAINER = palette.onPrimaryContainer;
+        SECONDARY = palette.secondary;
+        SECONDARY_CONTAINER = palette.secondaryContainer;
+        ON_SECONDARY_CONTAINER = palette.onSecondaryContainer;
+        ON_SURFACE = palette.onSurface;
+        VARIANT = palette.onSurfaceVariant;
+        OUTLINE = palette.outline;
         getWindow().setStatusBarColor(Color.TRANSPARENT);
         getWindow().setNavigationBarColor(Color.TRANSPARENT);
         getWindow().setDecorFitsSystemWindows(false);
         setContentView(buildShell());
+        WindowInsetsController bars = getWindow().getInsetsController();
+        if (bars != null) {
+            int lightBars = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                    | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+            bars.setSystemBarsAppearance(palette.light ? lightBars : 0, lightBars);
+        }
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                     OnBackInvokedDispatcher.PRIORITY_DEFAULT,
@@ -120,6 +142,10 @@ public final class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         Root.get().init(getApplicationContext());
+        GlyphEngine.get().init(getApplicationContext());
+        if (OutputGate.flashlight(this)) {
+            GlyphEngine.get().setFlashlight(true);
+        }
         final int before = stockState();
         Stock.refresh(this, new Runnable() {
             @Override
@@ -131,7 +157,10 @@ public final class MainActivity extends Activity {
         });
         if (Prefs.allowed(this) && (Prefs.anyZoneHas(this, Prefs.B_VOLUME)
                 || Prefs.anyZoneHas(this, Prefs.B_CHARGE_FULL))) {
-            GlyphService.refresh(this);
+            GlyphService.refreshIfNeeded(this);
+        }
+        if (Prefs.visualizer(this) && !OutputGate.allOff(this)) {
+            GlyphService.start(this, GlyphService.ACTION_VISUALIZER_ON);
         }
     }
 
@@ -324,6 +353,7 @@ public final class MainActivity extends Activity {
             public void onCheckedChanged(android.widget.CompoundButton button, boolean checked) {
                 Prefs.setMaster(MainActivity.this, checked);
                 if (!checked) {
+                    OutputGate.setVisualizer(MainActivity.this, false);
                     GlyphEngine.get().clear();
                 }
                 Toast.makeText(MainActivity.this,
@@ -351,6 +381,44 @@ public final class MainActivity extends Activity {
             }
         });
         root.addView(off);
+        root.addView(spacer(12));
+
+        LinearLayout gates = card();
+        gates.addView(title("Output gates"));
+        gates.addView(caption("Block an input for every strip without changing "
+                + "any zone setting. Turn it back on and the saved setup resumes."));
+        for (int i = 0; i < OutputGate.NAMES.length; i++) {
+            gates.addView(gateRow(i));
+        }
+        gates.addView(gateRow("Music visualizer",
+                "Live audio on the strips. Stays armed until you turn it off; "
+                        + "calls and notifications still take priority.",
+                OutputGate.visualizer(this),
+                new android.widget.CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(android.widget.CompoundButton button, boolean checked) {
+                        if (!OutputGate.setVisualizer(MainActivity.this, checked)) {
+                            button.setChecked(false);
+                        }
+                    }
+                }));
+        gates.addView(gateRow("Glyph lights",
+                "All LEDs white, bypassing every gate and All off",
+                OutputGate.flashlight(this), new android.widget.CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(android.widget.CompoundButton button, boolean checked) {
+                        OutputGate.setFlashlight(MainActivity.this, checked);
+                    }
+                }));
+        gates.addView(gateRow("All off",
+                "Kill switch for every normal output; Glyph lights still works",
+                OutputGate.allOff(this), new android.widget.CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(android.widget.CompoundButton button, boolean checked) {
+                        OutputGate.setAllOff(MainActivity.this, checked);
+                    }
+                }));
+        root.addView(gates);
         root.addView(spacer(10));
         int replacement = stockState();
         root.addView(caption(replacement == STOCK_ENABLED
@@ -424,7 +492,7 @@ public final class MainActivity extends Activity {
                         Prefs.setZoneOn(MainActivity.this, i, true);
                     }
                     GlyphEngine.get().apply(MainActivity.this);
-                    GlyphService.refresh(MainActivity.this);
+                    GlyphService.refreshIfNeeded(MainActivity.this);
                     showTab(1);
                 }
             });
@@ -498,36 +566,109 @@ public final class MainActivity extends Activity {
     private View buildAlerts() {
         LinearLayout root = page();
         root.addView(expressiveHeadline("Alerts"));
-        root.addView(caption("Notification filters, live sound pulses and quiet hours."));
+        root.addView(caption("Notification filters, alert animations and quiet hours."));
         root.addView(spacer(16));
 
         LinearLayout sound = card();
-        sound.addView(title("Sound-reactive glyphs"));
-        sound.addView(caption("While a ringtone or notification sound is audible, "
-                + "all 36 LEDs follow the audio. The previous behavior returns when it stops."));
-        sound.addView(statusRow("Audio access", AudioPulse.hasPermission(this)
-                ? "Granted" : "Missing"));
-        if (!AudioPulse.hasPermission(this)) {
-            TextView grant = tonalButton("Allow audio access");
-            grant.setLayoutParams(new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-            grant.setOnClickListener(new View.OnClickListener() {
+        sound.addView(title("Alert animations"));
+        sound.addView(caption("Calls use a repeating wave and notifications use a short "
+                + "pulse. These are fixed patterns, so alerts work on silent or vibrate "
+                + "and never capture audio."));
+        sound.addView(spacer(8));
+        sound.addView(audioRow("Calls", "Fixed repeating wave while a call rings",
+                Prefs.audioPulseCalls(this), true));
+        sound.addView(audioRow("Notifications", "One short pulse for each new alert",
+                Prefs.audioPulseNotifications(this), false));
+        sound.addView(spacer(8));
+
+        TextView testRingtone = tonalButton("Test ringtone + glyph");
+        testRingtone.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        testRingtone.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                GlyphService.start(MainActivity.this, GlyphService.ACTION_AUDIO_TEST);
+            }
+        });
+        sound.addView(testRingtone);
+
+        TextView testNotification = outlineButton("Test notification + glyph");
+        testNotification.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        testNotification.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                GlyphService.start(MainActivity.this, GlyphService.ACTION_NOTIFICATION_TEST);
+            }
+        });
+        sound.addView(spacer(6));
+        sound.addView(testNotification);
+        sound.addView(spacer(10));
+        sound.addView(caption("Muted tests compile the current phone sound into note frames, then play them silently. Each detected pitch gets its own LED and fades between notes. The sound versions use exactly the same frames."));
+
+        TextView muteRingtone = outlineButton("Test ringtone (muted)");
+        muteRingtone.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        muteRingtone.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                GlyphService.start(MainActivity.this, GlyphService.ACTION_AUDIO_TEST_MUTE);
+            }
+        });
+        sound.addView(muteRingtone);
+
+        TextView muteNotification = outlineButton("Test notification (muted)");
+        muteNotification.setLayoutParams(new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        muteNotification.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                GlyphService.start(MainActivity.this, GlyphService.ACTION_NOTIFICATION_TEST_MUTE);
+            }
+        });
+        sound.addView(spacer(6));
+        sound.addView(muteNotification);
+        sound.addView(caption("Sound tests play the phone's default ringtone or notification "
+                + "sound together with the saved pattern."));
+        root.addView(sound);
+        root.addView(spacer(12));
+
+        root.addView(section("Auto generation"));
+        LinearLayout auto = card();
+        auto.addView(title("Compile style"));
+        auto.addView(caption("Used by the test buttons and live notification alerts. "
+                + "Changing the style recompiles the current sounds."));
+        LinearLayout autoRow1 = new LinearLayout(this);
+        autoRow1.setOrientation(LinearLayout.HORIZONTAL);
+        autoRow1.setPadding(0, dp(8), 0, 0);
+        LinearLayout autoRow2 = new LinearLayout(this);
+        autoRow2.setOrientation(LinearLayout.HORIZONTAL);
+        autoRow2.setPadding(0, dp(6), 0, 0);
+        LinearLayout autoRow3 = new LinearLayout(this);
+        autoRow3.setOrientation(LinearLayout.HORIZONTAL);
+        autoRow3.setPadding(0, dp(6), 0, 0);
+        for (int mode = 0; mode < Prefs.AUTOGEN_COUNT; mode++) {
+            final int selectedMode = mode;
+            TextView option = chip(Prefs.AUTOGEN_NAMES[mode],
+                    Prefs.autogenMode(this) == mode);
+            option.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View view) {
-                    requestPermissions(new String[]{
-                            android.Manifest.permission.RECORD_AUDIO}, 2);
+                    Prefs.setAutogenMode(MainActivity.this, selectedMode);
+                    SoundCompiler.clearCache();
+                    SoundCompiler.preloadDefaults(MainActivity.this);
+                    Toast.makeText(MainActivity.this,
+                            Prefs.AUTOGEN_NAMES[selectedMode], Toast.LENGTH_SHORT).show();
+                    showTab(2);
                 }
             });
-            sound.addView(grant);
+            (mode < 2 ? autoRow1 : mode < 4 ? autoRow2 : autoRow3).addView(option);
         }
-        sound.addView(spacer(8));
-        sound.addView(audioRow("Calls", "Animate while a call rings; works on silent or vibrate",
-                Prefs.audioPulseCalls(this), true));
-        sound.addView(audioRow("Notifications", "Animate for every alert, even silent or vibrate",
-                Prefs.audioPulseNotifications(this), false));
-        sound.addView(caption("Reads the audio Android is already playing; "
-                + "it does not record from the microphone."));
-        root.addView(sound);
+        auto.addView(autoRow1);
+        auto.addView(autoRow2);
+        auto.addView(autoRow3);
+        auto.addView(caption(Prefs.AUTOGEN_DESCRIPTIONS[Prefs.autogenMode(this)]));
+        root.addView(auto);
         root.addView(spacer(12));
 
         root.addView(section("Rules"));
@@ -586,10 +727,6 @@ public final class MainActivity extends Activity {
                     requestPermissions(new String[]{
                             android.Manifest.permission.READ_PHONE_STATE}, 1);
                 }
-                if (enabled && !AudioPulse.hasPermission(MainActivity.this)) {
-                    requestPermissions(new String[]{
-                            android.Manifest.permission.RECORD_AUDIO}, 2);
-                }
             }
         });
         row.addView(toggle);
@@ -624,7 +761,7 @@ public final class MainActivity extends Activity {
             public void onCheckedChanged(android.widget.CompoundButton button, boolean checked) {
                 Prefs.setZoneOn(MainActivity.this, zone, checked);
                 GlyphEngine.get().apply(MainActivity.this);
-                GlyphService.refresh(MainActivity.this);
+                GlyphService.refreshIfNeeded(MainActivity.this);
             }
         });
         enableRow.addView(enabled);
@@ -723,7 +860,7 @@ public final class MainActivity extends Activity {
             public void onCheckedChanged(android.widget.CompoundButton button, boolean checked) {
                 Prefs.setBehavior(MainActivity.this, zone, bit, checked);
                 GlyphEngine.get().apply(MainActivity.this);
-                GlyphService.refresh(MainActivity.this);
+                GlyphService.refreshIfNeeded(MainActivity.this);
             }
         });
         row.addView(toggle);
@@ -793,7 +930,7 @@ public final class MainActivity extends Activity {
                         Prefs.setZoneLevel(MainActivity.this, i, value);
                     }
                     GlyphEngine.get().apply(MainActivity.this);
-                    GlyphService.refresh(MainActivity.this);
+                    GlyphService.refreshIfNeeded(MainActivity.this);
                     Toast.makeText(MainActivity.this,
                             "All strips at " + value + "%", Toast.LENGTH_SHORT).show();
                 }
@@ -864,7 +1001,7 @@ public final class MainActivity extends Activity {
             public void onCheckedChanged(android.widget.CompoundButton button, boolean checked) {
                 Prefs.setBehaviorAll(MainActivity.this, bit, checked);
                 GlyphEngine.get().apply(MainActivity.this);
-                GlyphService.refresh(MainActivity.this);
+                GlyphService.refreshIfNeeded(MainActivity.this);
             }
         });
         row.addView(toggle);
@@ -1225,9 +1362,10 @@ public final class MainActivity extends Activity {
         LinearLayout about = card();
         about.addView(title("Glyph"));
         about.addView(caption("A direct, dependency-free replacement for Nothing's glyph "
-                + "service. Frames go straight to the aw20036 LED driver."));
+                + "service. Frames go straight to the aw20036 LED driver, and the "
+                + "live visualizer maps each detected note to its own LED."));
         about.addView(caption("Version " + versionName() + " · Material 3 Expressive controls "
-                + "built from framework views."));
+                + "built from framework views. Runs without a foreground-service notification."));
         root.addView(about);
         root.addView(spacer(10));
 
@@ -1376,7 +1514,7 @@ public final class MainActivity extends Activity {
         addWeighted(testRow4, charging);
         tests.addView(testRow4);
 
-        TextView audioTest = outlineButton("Sound pulse test");
+        TextView audioTest = outlineButton("Alert test");
         audioTest.setLayoutParams(new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         audioTest.setOnClickListener(new View.OnClickListener() {
@@ -1400,8 +1538,6 @@ public final class MainActivity extends Activity {
         debug.addView(statusRow("Gate", Prefs.master(this) ? "On" : "Off"));
         debug.addView(statusRow("Quiet hours", Prefs.quiet(this) ? "Active" : "Inactive"));
         debug.addView(statusRow("Notification access", notificationAccess() ? "Granted" : "Missing"));
-        debug.addView(statusRow("Audio capture", AudioPulse.hasPermission(this)
-                ? "Ready" : "Permission missing"));
         debug.addView(statusRow("Stock package", stockStateLabel()));
 
         LinearLayout debugActions = new LinearLayout(this);
@@ -1420,7 +1556,7 @@ public final class MainActivity extends Activity {
             public void onClick(View view) {
                 Root.get().close();
                 Root.get().exec("true");
-                GlyphService.refresh(MainActivity.this);
+                GlyphService.refreshIfNeeded(MainActivity.this);
                 ui.postDelayed(new Runnable() {
                     @Override
                     public void run() {
@@ -1474,12 +1610,8 @@ public final class MainActivity extends Activity {
     }
 
     private void testAudioPulse() {
-        if (!AudioPulse.hasPermission(this)) {
-            requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO}, 2);
-            return;
-        }
         GlyphService.start(this, GlyphService.ACTION_AUDIO_TEST);
-        Toast.makeText(this, "Playing the test ringtone", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "Playing the fixed alert test", Toast.LENGTH_SHORT).show();
     }
 
     private void testRoot() {
@@ -1587,9 +1719,9 @@ public final class MainActivity extends Activity {
     private String versionName() {
         try {
             String version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-            return version == null ? "2.0" : version;
+            return version == null ? "2.1.0" : version;
         } catch (PackageManager.NameNotFoundException e) {
-            return "2.0";
+            return "2.1.0";
         }
     }
 
@@ -1764,6 +1896,35 @@ public final class MainActivity extends Activity {
 
     private Drawable ripple(Drawable background) {
         return new RippleDrawable(ColorStateList.valueOf(0x33FFFFFF), background, null);
+    }
+
+    private View gateRow(final int category) {
+        return gateRow(OutputGate.NAMES[category], OutputGate.DESCRIPTIONS[category],
+                OutputGate.enabled(this, category),
+                new android.widget.CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(android.widget.CompoundButton button, boolean checked) {
+                        OutputGate.setEnabled(MainActivity.this, category, checked);
+                    }
+                });
+    }
+
+    private View gateRow(String name, String description, boolean checked,
+                         android.widget.CompoundButton.OnCheckedChangeListener listener) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(9), 0, dp(3));
+        LinearLayout labels = column();
+        labels.setLayoutParams(new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        labels.addView(title(name));
+        labels.addView(caption(description));
+        row.addView(labels);
+        Switch toggle = m3Switch(checked);
+        toggle.setOnCheckedChangeListener(listener);
+        row.addView(toggle);
+        return row;
     }
 
     private Switch m3Switch(boolean checked) {

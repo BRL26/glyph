@@ -3,4 +3,4 @@ name=Glyph Root Cleanup
 version=12
 versionCode=12
 author=Glyph
-description=Removes the obsolete volume helper. The Glyph app now owns the LED node from one root shell.
+description=Legacy cleanup for Glyph: removes leftover helper processes and cached volume files at boot. LED control lives in one app-owned root shell.

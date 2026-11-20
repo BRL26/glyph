@@ -13,6 +13,9 @@ public final class BootReceiver extends BroadcastReceiver {
         applyStockReplacement(context);
         Root.get().init(context.getApplicationContext());
         Schedule.apply(context);
+        if (Prefs.visualizer(context) && !OutputGate.allOff(context)) {
+            GlyphService.start(context, GlyphService.ACTION_VISUALIZER_ON);
+        }
         if (!Prefs.allowed(context)) {
             return;
         }

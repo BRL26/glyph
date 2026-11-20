@@ -1,17 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="dev.brl.glyph"
-    android:versionCode="2"
-    android:versionName="2.0">
+    android:versionCode="3"
+    android:versionName="2.1.0">
 
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
-    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <queries>
@@ -49,14 +46,11 @@
             </intent-filter>
         </service>
 
+        <!-- No foreground service: the persistent notification listener keeps
+             the process alive, so the app never appears in Active apps. -->
         <service
             android:name=".GlyphService"
-            android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="glyph_effects" />
-        </service>
+            android:exported="false" />
 
         <receiver
             android:name=".PhoneStateReceiver"
@@ -86,5 +80,101 @@
         <receiver
             android:name=".ScheduleReceiver"
             android:exported="false" />
+
+        <receiver
+            android:name=".PackageReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".GlyphWidgetProvider"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/glyph_widget_info" />
+        </receiver>
+
+        <service
+            android:name=".MusicTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_music"
+            android:label="@string/tile_music"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".VolumeTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_volume"
+            android:label="@string/tile_volume"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".BatteryTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_battery"
+            android:label="@string/tile_battery"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".RingtoneTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_ringtone"
+            android:label="@string/tile_ringtone"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".GlyphsTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_glyphs"
+            android:label="@string/tile_glyphs"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".AllOffTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_all_off"
+            android:label="@string/tile_all_off"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <service
+            android:name=".GlyphLightsTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_tile_lights"
+            android:label="@string/tile_lights"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
     </application>
 </manifest>

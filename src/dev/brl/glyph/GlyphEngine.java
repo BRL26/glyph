@@ -44,10 +44,14 @@ public final class GlyphEngine {
     private boolean hasWritten;
     private volatile boolean suspended;
     private volatile long generation;
+    private Context app;
+    private volatile boolean flashlight;
     private volatile boolean audioOverride;
     private volatile Object audioOwner;
     private volatile boolean priorityAnimation;
     private volatile int priorityLevel;
+    private volatile boolean visualizerActive;
+    private volatile Object visualizerOwner;
 
     /** Notification audio is level 1; a ringing call is level 2. */
     public static final int LEVEL_NOTIFICATION = 1;
@@ -70,9 +74,76 @@ public final class GlyphEngine {
         return instance;
     }
 
+    public void init(Context context) {
+        app = context.getApplicationContext();
+    }
+
+    /** Full-white override. It is checked before every normal write path. */
+    public void setFlashlight(boolean on) {
+        flashlight = on;
+        if (on) {
+            resume();
+            stopAnimation();
+            chargingFill = false;
+        audioOverride = false;
+        priorityAnimation = false;
+        priorityLevel = 0;
+        visualizerActive = false;
+        visualizerOwner = null;
+        cancelVolumeClear();
+        volumeFrame = null;
+        volumeMask = null;
+        write(GlyphLayout.fullFrame());
+        } else if (suspended || (app != null && !OutputGate.allows(app, OutputGate.GLYPHS))) {
+            // All off (or a closed output gate) suspends normal rendering.
+            // Turning the flashlight off still has to clear the latched white
+            // frame; render() would return early while suspended.
+            synchronized (frameLock) {
+                int[] off = new int[GlyphLayout.LEDS];
+                root.writeFrame(off);
+                lastFrame = off;
+                hasWritten = true;
+            }
+        } else {
+            render();
+        }
+        Log.i(TAG, "glyph lights=" + on);
+    }
+
+    /** Re-evaluate category gates after a toggle without changing zone prefs. */
+    public void refreshGates(Context context) {
+        if (!OutputGate.allows(context, OutputGate.MUSIC)) {
+            clearStatic(Prefs.B_MEDIA);
+        }
+        if (!OutputGate.allows(context, OutputGate.VOLUME)) {
+            cancelVolumeClear();
+            volumeFrame = null;
+            volumeMask = null;
+        }
+        if (!OutputGate.allows(context, OutputGate.BATTERY)) {
+            chargingFill = false;
+            clearStatic(Prefs.B_CHARGE_BRIEF);
+            clearStatic(Prefs.B_CHARGE_FULL);
+        }
+        if (!OutputGate.allows(context, OutputGate.RINGTONE)
+                && priorityAnimation && priorityLevel == LEVEL_CALL) {
+            endPriority();
+        }
+        if (!OutputGate.allows(context, OutputGate.GLYPHS)) {
+            clear();
+        } else {
+            resumeIfSuspended();
+            render();
+        }
+    }
+
     // ------------------------------------------------------------ statics
 
     public void setProgress(Context context, int behavior, int percent) {
+        if (!OutputGate.allowsBehavior(context, behavior)) {
+            clearStatic(behavior);
+            return;
+        }
         // Storing a static must not cancel a running effect. The old resume()
         // bumped the generation, which killed the plug-in fill the instant the
         // battery broadcast arrived.
@@ -125,6 +196,8 @@ public final class GlyphEngine {
         generation++;
         audioOverride = false;
         priorityAnimation = false;
+        visualizerActive = false;
+        visualizerOwner = null;
         chargingFill = false;
         stopAnimation();
         cancelVolumeClear();
@@ -140,11 +213,11 @@ public final class GlyphEngine {
         }
         tempClears.clear();
         synchronized (frameLock) {
-            int[] off = new int[GlyphLayout.LEDS];
+            int[] off = flashlight ? GlyphLayout.fullFrame() : new int[GlyphLayout.LEDS];
             root.writeFrame(off);
             lastFrame = off;
         }
-        Log.i(TAG, "hard off: animations stopped and frame latched to zero");
+        Log.i(TAG, "hard off: animations stopped" + (flashlight ? " (lights preserved)" : " and frame latched to zero"));
     }
 
     private void resume() {
@@ -163,6 +236,9 @@ public final class GlyphEngine {
     // ---------------------------------------------------------- effects
 
     public void playNotification(Context context) {
+        if (!OutputGate.allowsBehavior(context, Prefs.B_ESSENTIAL)) {
+            return;
+        }
         // Notifications keep their own pulse; they are the deliberate
         // exception to the quick fade used by the other displays.
         play(GlyphEffects.STYLE_PULSE, 1900, false,
@@ -170,12 +246,15 @@ public final class GlyphEngine {
     }
 
     public void playChargingBrief(Context context) {
+        if (!OutputGate.allows(context, OutputGate.BATTERY)) {
+            return;
+        }
         playFill(context, Prefs.B_CHARGE_BRIEF, 2800L);
     }
 
     /** Bottom-up fill used by the charge animation. */
     private void playFill(final Context context, final int behavior, final long durationMs) {
-        if (audioOverride || priorityAnimation) {
+        if (audioOverride || priorityAnimation || visualizerActive) {
             return;
         }
         resume();
@@ -210,9 +289,12 @@ public final class GlyphEngine {
      * their values underneath.
      */
     public void playVolume(Context context, int percent) {
+        if (!OutputGate.allows(context, OutputGate.VOLUME)) {
+            return;
+        }
         // Calls and notification sounds own the LEDs until their animation
         // finishes; volume waits instead of drawing over them.
-        if (audioOverride || priorityAnimation) {
+        if (audioOverride || priorityAnimation || visualizerActive) {
             return;
         }
         resume();
@@ -259,14 +341,24 @@ public final class GlyphEngine {
     }
 
     public void startCall(Context context) {
-        playSound(GlyphEffects.STYLE_CALL, 120000L, Prefs.soundFrame(context));
+        playSound(context, GlyphEffects.STYLE_CALL, 120000L, Prefs.soundFrame(context));
     }
 
     public void stopCall() {
+        endPriority();
+    }
+
+    /**
+     * Ends a priority animation and fades back to whatever was underneath it.
+     * Statics (media/notification progress, battery, essential bars) were kept
+     * in the claim map while the alert owned the LEDs, so this is the path that
+     * makes them come back instead of staying dark.
+     */
+    private void endPriority() {
         priorityAnimation = false;
         priorityLevel = 0;
         stopAnimation();
-        render();
+        fadeThenRender();
     }
 
     /**
@@ -275,6 +367,10 @@ public final class GlyphEngine {
      */
     public void showEssential(Context context) {
         if (suspended) {
+            return;
+        }
+        if (!OutputGate.allowsBehavior(context, Prefs.B_ESSENTIAL)) {
+            clearStatic(Prefs.B_ESSENTIAL);
             return;
         }
         putStatic(Prefs.B_ESSENTIAL, Prefs.frameForBehavior(context, Prefs.B_ESSENTIAL),
@@ -293,7 +389,7 @@ public final class GlyphEngine {
     /** Hardware test: show a raw frame, then fade back to the normal statics. */
     public void previewRaw(final int[] frame, final long durationMs) {
         if (frame == null || frame.length != GlyphLayout.LEDS
-                || audioOverride || priorityAnimation) {
+                || audioOverride || priorityAnimation || visualizerActive) {
             return;
         }
         resume();
@@ -318,10 +414,7 @@ public final class GlyphEngine {
     // --------------------------------------------------------- animation
 
     public void stop() {
-        priorityAnimation = false;
-        priorityLevel = 0;
-        stopAnimation();
-        render();
+        endPriority();
     }
 
     /** Cancels the plug-in fill when the charger is removed. */
@@ -352,7 +445,10 @@ public final class GlyphEngine {
      * ends; volume, battery and progress displays wait for it rather than
      * drawing over it.
      */
-    public void playSound(int style, long durationMs, int[] source) {
+    public void playSound(Context context, int style, long durationMs, int[] source) {
+        if (!OutputGate.allowsAlert(context, levelForStyle(style))) {
+            return;
+        }
         play(style, durationMs, false, source, false, true);
     }
 
@@ -364,7 +460,8 @@ public final class GlyphEngine {
                       final int[] source, final boolean fadeOut, final boolean priority) {
         int level = priority ? levelForStyle(style) : 0;
         // Calls outrank notifications, and both outrank every normal display.
-        if (audioOverride || (priorityAnimation && (!priority || level < priorityLevel))
+        if (audioOverride || (visualizerActive && !priority)
+                || (priorityAnimation && (!priority || level < priorityLevel))
                 || source == null || GlyphEffects.sum(source) == 0) {
             return;
         }
@@ -396,14 +493,121 @@ public final class GlyphEngine {
                     animating = false;
                     tick = null;
                     if (priority) {
-                        priorityAnimation = false;
-                        priorityLevel = 0;
+                        endPriority();
+                    } else {
+                        fadeThenRender();
                     }
-                    render();
                 }
             }
         };
         handler.post(tick);
+    }
+
+    /**
+     * Plays a precompiled 36-column script at its native frame rate. The
+     * notification/call priority rules are the same as playSound(); muted
+     * alerts use this too, so the pattern is identical with or without audio.
+     */
+    public void playFrames(Context context, final int[][] frames, final int fps,
+                           final int level, final Runnable onDone) {
+        if (!OutputGate.allowsAlert(context, level)) {
+            return;
+        }
+        if (frames == null || frames.length == 0 || fps <= 0 || audioOverride
+                || (priorityAnimation && level < priorityLevel)) {
+            return;
+        }
+        resume();
+        stopAnimation();
+        chargingFill = false;
+        animating = true;
+        priorityAnimation = true;
+        priorityLevel = level;
+        final long token = generation;
+        final long started = SystemClock.uptimeMillis();
+        final double frameMs = 1000.0 / fps;
+        final long totalMs = Math.round(frames.length * frameMs);
+        tick = new Runnable() {
+            @Override
+            public void run() {
+                if (!animating || audioOverride || suspended || token != generation) {
+                    return;
+                }
+                long elapsed = SystemClock.uptimeMillis() - started;
+                if (elapsed >= totalMs) {
+                    animating = false;
+                    tick = null;
+                    if (onDone != null) {
+                        onDone.run();
+                    }
+                    endPriority();
+                    return;
+                }
+                int index = (int) Math.min(frames.length - 1L, (long) (elapsed / frameMs));
+                write(frames[index]);
+                handler.postDelayed(this, 16L);
+            }
+        };
+        handler.post(tick);
+    }
+
+    /**
+     * Arms the persistent visualizer. It owns normal output until disarmed,
+     * but unlike a notification/call override it yields to priority audio.
+     */
+    public void beginVisualizer(Object owner) {
+        if (app != null && OutputGate.allOff(app)) {
+            return;
+        }
+        resumeIfSuspended();
+        visualizerActive = true;
+        visualizerOwner = owner;
+        cancelVolumeClear();
+        volumeFrame = null;
+        volumeMask = null;
+        if (!priorityAnimation && !audioOverride) {
+            stopAnimation();
+            chargingFill = false;
+        }
+        Log.i(TAG, "visualizer armed");
+    }
+
+    public boolean isVisualizerActive() {
+        return visualizerActive;
+    }
+
+    /** Writes one live visualizer frame. Calls/notifications always outrank it. */
+    public void visualizerFrame(int[] frame) {
+        if (!visualizerActive || suspended || frame == null
+                || frame.length != GlyphLayout.LEDS) {
+            return;
+        }
+        synchronized (frameLock) {
+            if (!visualizerActive || suspended || priorityAnimation || audioOverride) {
+                return;
+            }
+            if (flashlight) {
+                return;
+            }
+            if (app != null && OutputGate.allOff(app)) {
+                return;
+            }
+            root.writeFrame(frame);
+            lastFrame = frame.clone();
+            hasWritten = true;
+        }
+    }
+
+    public void endVisualizer(Object owner) {
+        if (owner != null && visualizerOwner != owner) {
+            return;
+        }
+        visualizerActive = false;
+        visualizerOwner = null;
+        Log.i(TAG, "visualizer disarmed");
+        if (!priorityAnimation && !audioOverride) {
+            fadeThenRender();
+        }
     }
 
     /** Audio is about to write its own frames; stop normal animations. */
@@ -421,7 +625,16 @@ public final class GlyphEngine {
             return;
         }
         synchronized (frameLock) {
+            if (flashlight) {
+                int[] white = GlyphLayout.fullFrame();
+                root.writeFrame(white);
+                lastFrame = white.clone();
+                return;
+            }
             if (!audioOverride || suspended) {
+                return;
+            }
+            if (app != null && !OutputGate.allows(app, OutputGate.GLYPHS)) {
                 return;
             }
             root.writeFrame(frame);
@@ -440,9 +653,7 @@ public final class GlyphEngine {
         }
         audioOwner = null;
         audioOverride = false;
-        priorityAnimation = false;
-        priorityLevel = 0;
-        render();
+        endPriority();
     }
 
     /**
@@ -477,7 +688,7 @@ public final class GlyphEngine {
     }
 
     private void render() {
-        if (audioOverride || priorityAnimation || suspended) {
+        if (audioOverride || priorityAnimation || visualizerActive || suspended) {
             return;
         }
         if (animating) {
@@ -492,7 +703,7 @@ public final class GlyphEngine {
      * and ringtone animations bypass this and keep their own timing.
      */
     private void fadeThenRender() {
-        if (suspended || audioOverride || priorityAnimation) {
+        if (suspended || audioOverride || priorityAnimation || visualizerActive) {
             return;
         }
         // Only one fade may exist. Two overlapping fades used to write
@@ -526,6 +737,10 @@ public final class GlyphEngine {
                     animating = false;
                     tick = null;
                     write(target);
+                    // A progress update can land during the fade. Re-render the
+                    // current claim map so the restored bar is the latest one,
+                    // not the snapshot taken when the alert ended.
+                    render();
                 }
             }
         };
@@ -534,7 +749,17 @@ public final class GlyphEngine {
 
     private void write(int[] frame) {
         synchronized (frameLock) {
+            if (flashlight) {
+                int[] white = GlyphLayout.fullFrame();
+                root.writeFrame(white);
+                lastFrame = white.clone();
+                hasWritten = true;
+                return;
+            }
             if (suspended) {
+                return;
+            }
+            if (app != null && !OutputGate.allows(app, OutputGate.GLYPHS)) {
                 return;
             }
             overlayVolume(frame);

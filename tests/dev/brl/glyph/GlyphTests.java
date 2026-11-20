@@ -17,6 +17,7 @@ public final class GlyphTests {
         effectsTests();
         blendTests();
         frameClaimTests();
+        mediaPositionTests();
         effectOrderTests();
         spectrumMaskTests();
         defaultsTests();
@@ -489,6 +490,22 @@ public final class GlyphTests {
         int[] legacy = FrameClaims.compose(Arrays.asList(dim, bright),
                 Arrays.<boolean[]>asList(null, null));
         check(legacy[0] == 90, "claims: unmasked frames keep the brighter value");
+    }
+
+    /** Media position extrapolation and percentage math. */
+    private static void mediaPositionTests() {
+        check(MediaPosition.current(10000, 1000, 1500, 1f, true) == 10500,
+                "media: playing position advances");
+        check(MediaPosition.current(10000, 1000, 1500, 2f, true) == 11000,
+                "media: playback speed is applied");
+        check(MediaPosition.current(10000, 1000, 1500, 1f, false) == 10000,
+                "media: paused position holds");
+        check(MediaPosition.current(10000, 2000, 1500, 1f, true) == 10000,
+                "media: a stale clock cannot move backwards");
+        check(MediaPosition.percent(0, 100000) == 0, "media: zero percent");
+        check(MediaPosition.percent(50000, 100000) == 50, "media: half percent");
+        check(MediaPosition.percent(120000, 100000) == 100, "media: percent clamps high");
+        check(MediaPosition.percent(50000, 0) == -1, "media: unknown duration is rejected");
     }
 
     /** Fades must hit both endpoints exactly and never overshoot. */

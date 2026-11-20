@@ -19,12 +19,10 @@ import java.io.OutputStreamWriter;
 /**
  * Root sink for LED frames.
  *
- * Preferred path: the tiny helper in /data/adb/service.d exposes a FIFO owned by
- * this app. The app opens it non-blocking and streams frames through it, so no
- * su process is spawned per frame and no root prompt is needed after setup.
- *
- * Fallback: one long-lived `su` shell (for normal Magisk/KernelSU allowlisted
- * installs).
+ * Every frame goes through one long-lived `su` shell, so no root prompt is
+ * spawned per frame and Off can never be swallowed by a dead pipe. A helper
+ * module left by an older build is evicted on startup so it cannot compete for
+ * the LED node.
  */
 public final class Root {
 
@@ -78,7 +76,7 @@ public final class Root {
         return false;
     }
 
-    /** The helper writes this file at start; version 3 is the supervised hook. */
+    /** The helper writes this file at start; the current hook is version 11. */
     public int helperVersion() {
         if (context == null) {
             return 0;
@@ -113,7 +111,7 @@ public final class Root {
         }
     }
 
-    /** True only when the v3 helper has written version metadata recently. */
+    /** True only when the helper has written version metadata recently. */
     public boolean helperAlive() {
         if (helperVersion() < EXPECTED_HELPER_VERSION || context == null) {
             return false;
@@ -529,6 +527,29 @@ public final class Root {
         if (startSu()) {
             sendSu(shellCommand);
         }
+    }
+
+    /**
+     * Starts the app service without a foreground service. The notification
+     * listener normally keeps the process alive, but a root start also works
+     * when the callback arrives from the background or after a force-stop.
+     */
+    public void startService(String action) {
+        if (action == null || !startSu()) {
+            return;
+        }
+        sendSu("am start-service --user 0 -n dev.brl.glyph/.GlyphService -a " + action);
+    }
+
+    /** Keeps the non-foreground service alive on ROMs with aggressive killers. */
+    public void keepAlive() {
+        if (!startSu()) {
+            return;
+        }
+        sendSu("cmd deviceidle whitelist +dev.brl.glyph >/dev/null 2>&1; "
+                + "am set-standby-bucket dev.brl.glyph active >/dev/null 2>&1; "
+                + "appops set dev.brl.glyph RUN_IN_BACKGROUND allow >/dev/null 2>&1; "
+                + "appops set dev.brl.glyph RUN_ANY_IN_BACKGROUND allow >/dev/null 2>&1");
     }
 
     private void closeSu() {

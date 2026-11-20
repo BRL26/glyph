@@ -10,6 +10,8 @@ import android.os.Looper;
 import android.os.SystemClock;
 import android.util.Log;
 
+import java.util.ArrayList;
+
 /**
  * Turns the phone's current audio output into a temporary 36-LED overlay.
  *
@@ -29,8 +31,10 @@ public final class AudioPulse {
     private final long maxDurationMs;
     private final long silenceMs;
     private final Runnable onStopped;
+    /** Arming the visualizer keeps capture open through silence and alerts. */
+    private boolean persistent;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final AudioSpectrum spectrum = new AudioSpectrum();
+    private NoteMap noteMap;
     private boolean[] allowedLeds;
 
     private HandlerThread thread;
@@ -58,6 +62,13 @@ public final class AudioPulse {
         this.maxDurationMs = maxDurationMs;
         this.silenceMs = silenceMs;
         this.onStopped = onStopped;
+        this.persistent = false;
+    }
+
+    /** Creates an armed visualizer: no duration cap and no silence shutdown. */
+    public AudioPulse(Context context, Runnable onStopped) {
+        this(context, Long.MAX_VALUE / 4L, Long.MAX_VALUE / 4L, 0, onStopped);
+        this.persistent = true;
     }
 
     public boolean isRunning() {
@@ -80,7 +91,13 @@ public final class AudioPulse {
         startedAt = SystemClock.uptimeMillis();
         lastEnergyAt = startedAt;
         allowedLeds = Prefs.enabledLeds(context);
-        spectrum.reset();
+        noteMap = buildNoteMap(allowedLeds);
+        if (persistent) {
+            // Claim the strips immediately. Frames are rejected while a call
+            // or notification owns the LEDs, then the visualizer resumes.
+            overrideStarted = true;
+            GlyphEngine.get().beginVisualizer(owner);
+        }
         thread = new HandlerThread("glyph-audio");
         thread.start();
         handler = new Handler(thread.getLooper());
@@ -166,18 +183,21 @@ public final class AudioPulse {
             return;
         }
         long now = SystemClock.uptimeMillis();
-        if (now - startedAt > maxDurationMs) {
+        if (!persistent && now - startedAt > maxDurationMs) {
             stopFromWorker();
             return;
         }
 
         int brightness = Prefs.clamp(Prefs.brightness(context), 0, 100);
-        int[] frame = spectrum.process(fft, sampleRate, captureSize, brightness, allowedLeds);
-        float energy = spectrum.lastEnergy();
+        double[] magnitude = NoteMap.fftMagnitudes(fft);
+        int[] frame = noteMap == null
+                ? new int[GlyphLayout.LEDS]
+                : noteMap.process(magnitude, sampleRate, captureSize, brightness);
+        float energy = noteMap == null ? 0f : noteMap.lastEnergy();
 
         if (energy > 0.02f) {
             lastEnergyAt = now;
-        } else if (now - lastEnergyAt > silenceMs) {
+        } else if (!persistent && now - lastEnergyAt > silenceMs) {
             stopFromWorker();
             return;
         }
@@ -223,7 +243,58 @@ public final class AudioPulse {
                     + "/36 A=" + zoneLit[0] + "/11 B=" + zoneLit[1]
                     + "/5 C=" + zoneLit[2] + "/20 energy=" + energy);
         }
-        GlyphEngine.get().audioFrame(frame);
+        if (persistent) {
+            GlyphEngine.get().visualizerFrame(frame);
+        } else {
+            GlyphEngine.get().audioFrame(frame);
+        }
+    }
+
+    /**
+     * The visualizer and the compiled sounds share one pitch order: low notes
+     * on C, then A, then B, each strip bottom-up. This is the same order
+     * SoundCompiler uses for its Note map mode.
+     */
+    private NoteMap buildNoteMap(boolean[] allowed) {
+        ArrayList<Integer> pitchLeds = new ArrayList<>();
+        int[] zones = {2, 0, 1};
+        for (int zone : zones) {
+            boolean any = false;
+            for (int pos = 0; pos < GlyphLayout.ZONE_LEDS[zone]; pos++) {
+                int hw = GlyphLayout.hwIndex(zone, pos);
+                if (allowed == null || allowed.length != GlyphLayout.LEDS || allowed[hw]) {
+                    any = true;
+                    break;
+                }
+            }
+            if (!any) {
+                continue;
+            }
+            for (int pos = 0; pos < GlyphLayout.ZONE_LEDS[zone]; pos++) {
+                int hw = GlyphLayout.hwIndex(zone, pos);
+                if (allowed == null || allowed.length != GlyphLayout.LEDS || allowed[hw]) {
+                    pitchLeds.add(hw);
+                }
+            }
+        }
+        int[] order = new int[pitchLeds.size()];
+        for (int i = 0; i < order.length; i++) {
+            order[i] = pitchLeds.get(i);
+        }
+        int[] zoneForLed = new int[GlyphLayout.LEDS];
+        for (int led = 0; led < zoneForLed.length; led++) {
+            zoneForLed[led] = -1;
+        }
+        for (int zone = 0; zone < 3; zone++) {
+            for (int pos = 0; pos < GlyphLayout.ZONE_LEDS[zone]; pos++) {
+                zoneForLed[GlyphLayout.hwIndex(zone, pos)] = zone;
+            }
+        }
+        int[] zoneLevel = new int[3];
+        for (int zone = 0; zone < 3; zone++) {
+            zoneLevel[zone] = Prefs.zoneLevel(context, zone);
+        }
+        return new NoteMap(order, zoneForLed, zoneLevel);
     }
 
     private final Runnable watchdog = new Runnable() {
@@ -233,7 +304,8 @@ public final class AudioPulse {
                 return;
             }
             long now = SystemClock.uptimeMillis();
-            if (now - startedAt > maxDurationMs || now - lastEnergyAt > silenceMs) {
+            if (!persistent
+                    && (now - startedAt > maxDurationMs || now - lastEnergyAt > silenceMs)) {
                 stopFromWorker();
                 return;
             }
@@ -269,7 +341,11 @@ public final class AudioPulse {
         }
         if (overrideStarted) {
             overrideStarted = false;
-            GlyphEngine.get().endAudioOverride(owner);
+            if (persistent) {
+                GlyphEngine.get().endVisualizer(owner);
+            } else {
+                GlyphEngine.get().endAudioOverride(owner);
+            }
         }
         HandlerThread localThread = thread;
         thread = null;
