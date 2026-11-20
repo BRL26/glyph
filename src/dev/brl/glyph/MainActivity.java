@@ -571,13 +571,13 @@ public final class MainActivity extends Activity {
 
         LinearLayout sound = card();
         sound.addView(title("Alert animations"));
-        sound.addView(caption("Calls use a repeating wave and notifications use a short "
-                + "pulse. These are fixed patterns, so alerts work on silent or vibrate "
-                + "and never capture audio."));
+        sound.addView(caption("Calls loop the compiled ringtone and notifications "
+                + "play the compiled notification sound. Alerts work on silent or "
+                + "vibrate and never capture audio."));
         sound.addView(spacer(8));
-        sound.addView(audioRow("Calls", "Fixed repeating wave while a call rings",
+        sound.addView(audioRow("Calls", "Compiled ringtone, looped while the call rings",
                 Prefs.audioPulseCalls(this), true));
-        sound.addView(audioRow("Notifications", "One short pulse for each new alert",
+        sound.addView(audioRow("Notifications", "Compiled notification sound for each new alert",
                 Prefs.audioPulseNotifications(this), false));
         sound.addView(spacer(8));
 

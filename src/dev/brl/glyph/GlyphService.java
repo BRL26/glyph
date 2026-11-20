@@ -179,7 +179,7 @@ public final class GlyphService extends Service {
             callActive = true;
             if (Prefs.audioPulseCalls(this)
                     && OutputGate.allows(this, OutputGate.RINGTONE)) {
-                startAlert(120000L, GlyphEffects.STYLE_CALL);
+                startCallGlyphs();
             }
             handler.removeCallbacks(callTimeout);
             handler.postDelayed(callTimeout, 120000L);
@@ -278,6 +278,7 @@ public final class GlyphService extends Service {
         handler.removeCallbacks(callTimeout);
         callActive = false;
         soundUntil = 0;
+        releaseTestPlayer();
         engine.stopCall();
         maybeStop();
     }
@@ -302,6 +303,81 @@ public final class GlyphService extends Service {
         }, durationMs + 1200L);
         Log.d(TAG, "alert style=" + style + " duration=" + durationMs);
         return true;
+    }
+
+    /**
+     * A real ringing call uses exactly the same compiled note track as the
+     * muted ringtone test. The ROM plays the ringtone itself, so Glyph only
+     * loops the silent frames until the call is answered or rejected.
+     */
+    private void startCallGlyphs() {
+        releaseTestPlayer();
+        // Keep the service alive while MediaCodec decodes a long ringtone.
+        soundUntil = System.currentTimeMillis() + 20000L;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final Uri uri = RingtoneManager.getActualDefaultRingtoneUri(
+                        GlyphService.this, RingtoneManager.TYPE_RINGTONE);
+                if (uri == null) {
+                    handler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            fallbackCallAlert();
+                        }
+                    });
+                    return;
+                }
+                try {
+                    int mode = Prefs.autogenMode(GlyphService.this);
+                    SoundCompiler.Result result = SoundCompiler.cached(
+                            GlyphService.this, uri, mode);
+                    if (result == null) {
+                        result = SoundCompiler.compile(GlyphService.this, uri, mode);
+                        SoundCompiler.store(GlyphService.this, uri, mode, result);
+                    }
+                    final SoundCompiler.Result compiled = result;
+                    handler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (!callActive) {
+                                return;
+                            }
+                            startCallPlayback(compiled);
+                        }
+                    });
+                } catch (final Throwable error) {
+                    Log.w(TAG, "call ringtone compile failed, using fixed pattern", error);
+                    handler.post(new Runnable() {
+                        @Override
+                        public void run() {
+                            fallbackCallAlert();
+                        }
+                    });
+                }
+            }
+        }, "glyph-call-compile").start();
+    }
+
+    private void startCallPlayback(SoundCompiler.Result result) {
+        /*
+         * No MediaPlayer here: the system is already ringing. Looping the
+         * precompiled frames keeps the note map in sync with the ringtone for
+         * the whole call instead of showing one short pulse and going dark.
+         */
+        GlyphEngine.get().playFrames(this, result.frames, SoundCompiler.FPS,
+                GlyphEngine.LEVEL_CALL, true, null);
+        Log.d(TAG, "call compiled ringtone mode="
+                + Prefs.AUTOGEN_NAMES[Prefs.autogenMode(this)]
+                + " frames=" + result.frames.length
+                + " durationMs=" + result.durationMs);
+    }
+
+    /** Only used if the ringtone cannot be decoded at all. */
+    private void fallbackCallAlert() {
+        if (callActive) {
+            startAlert(120000L, GlyphEffects.STYLE_CALL);
+        }
     }
 
     private void playTestTone() {

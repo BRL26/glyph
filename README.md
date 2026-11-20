@@ -9,9 +9,10 @@ in the loop.
 
 - 36-LED phone map with per-strip assignment, brightness and behavior settings.
 - Essential-notification bars with app/title/text rules.
-- Sound-compiled ringtone and notification animations. Calls outrank
-  notifications; both temporarily outrank every ambient display and the
-  underlying display resumes afterwards.
+- Sound-compiled ringtone and notification animations. A real ringing call
+  loops the compiled ringtone frames for the whole ring; notifications play
+  their compiled sound once. Calls outrank notifications; both temporarily
+  outrank every ambient display and the underlying display resumes afterwards.
 - Bottom-up volume, media-progress, notification-progress and charging bars.
 - **Music visualizer**: live note map from the current audio output, persistent
   until turned off. Each detected pitch gets its own LED, with held-note decay;
@@ -24,6 +25,10 @@ in the loop.
   saved zone assignments.
 - Material 3 Expressive UI driven by the phone's wallpaper palette.
 - Home controls, home-screen widget and Quick Settings tiles.
+
+Glyph auto-starts after boot through its `BOOT_COMPLETED` receiver, falling
+back to a root service start if the ROM blocks background starts. The optional
+KernelSU module in `module/` starts it at boot as well.
 
 The visualizer and service deliberately do **not** use a foreground service.
 The persistent notification listener keeps the process alive, so Glyph does not

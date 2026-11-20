@@ -510,6 +510,17 @@ public final class GlyphEngine {
      */
     public void playFrames(Context context, final int[][] frames, final int fps,
                            final int level, final Runnable onDone) {
+        playFrames(context, frames, fps, level, false, onDone);
+    }
+
+    /**
+     * Same as playFrames(), but a looping track repeats until a call ends or
+     * another priority alert replaces it. Real ringing calls use this so the
+     * compiled ringtone keeps replaying for the whole ring instead of going
+     * dark after one pass.
+     */
+    public void playFrames(Context context, final int[][] frames, final int fps,
+                           final int level, final boolean loop, final Runnable onDone) {
         if (!OutputGate.allowsAlert(context, level)) {
             return;
         }
@@ -535,15 +546,19 @@ public final class GlyphEngine {
                 }
                 long elapsed = SystemClock.uptimeMillis() - started;
                 if (elapsed >= totalMs) {
-                    animating = false;
-                    tick = null;
-                    if (onDone != null) {
-                        onDone.run();
+                    if (loop) {
+                        elapsed %= totalMs;
+                    } else {
+                        animating = false;
+                        tick = null;
+                        if (onDone != null) {
+                            onDone.run();
+                        }
+                        endPriority();
+                        return;
                     }
-                    endPriority();
-                    return;
                 }
-                int index = (int) Math.min(frames.length - 1L, (long) (elapsed / frameMs));
+                int index = GlyphEffects.frameIndex(elapsed, frames.length, fps, loop);
                 write(frames[index]);
                 handler.postDelayed(this, 16L);
             }

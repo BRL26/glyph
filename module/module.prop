@@ -1,6 +1,6 @@
 id=glyph_helper
-name=Glyph Root Cleanup
-version=12
-versionCode=12
+name=Glyph Boot
+version=13
+versionCode=13
 author=Glyph
-description=Legacy cleanup for Glyph: removes leftover helper processes and cached volume files at boot. LED control lives in one app-owned root shell.
+description=Starts Glyph after boot and removes leftover helper processes and cached volume files from old versions. LED control lives in one app-owned root shell.

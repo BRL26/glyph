@@ -106,6 +106,27 @@ public final class GlyphEffects {
         return frame;
     }
 
+    /**
+     * Which frame of a precompiled track to show. Looping tracks wrap around
+     * so a ringtone keeps replaying for as long as the call rings; one-shot
+     * tracks clamp to their last frame.
+     */
+    public static int frameIndex(long elapsedMs, int frameCount, int fps, boolean loop) {
+        if (frameCount <= 0 || fps <= 0) {
+            return 0;
+        }
+        long totalMs = Math.round(frameCount * (1000.0 / fps));
+        if (totalMs <= 0) {
+            return frameCount - 1;
+        }
+        long position = elapsedMs < 0 ? 0 : elapsedMs;
+        position = loop ? position % totalMs : Math.min(position, totalMs - 1);
+        // The epsilon keeps exact frame boundaries (500 ms at 60 fps) from
+        // flooring to the previous frame through floating-point error.
+        long index = (long) Math.floor(position * (double) fps / 1000.0 + 1.0e-9);
+        return (int) Math.max(0, Math.min(frameCount - 1, index));
+    }
+
     public static float wave(long elapsed, double periodMs) {
         return (float) (0.5 - 0.5 * Math.cos(2.0 * Math.PI * elapsed / periodMs));
     }

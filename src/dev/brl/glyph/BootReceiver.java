@@ -13,9 +13,15 @@ public final class BootReceiver extends BroadcastReceiver {
         applyStockReplacement(context);
         Root.get().init(context.getApplicationContext());
         Schedule.apply(context);
+        // Have the default notification/ringtone note tracks ready before the
+        // first real alert, not just before the first test button press.
+        SoundCompiler.preloadDefaults(context);
         if (Prefs.visualizer(context) && !OutputGate.allOff(context)) {
             GlyphService.start(context, GlyphService.ACTION_VISUALIZER_ON);
         }
+        // Auto-start even when only the event-driven gates are enabled; the
+        // service stops itself again if it has nothing to watch.
+        GlyphService.start(context, GlyphService.ACTION_REFRESH);
         if (!Prefs.allowed(context)) {
             return;
         }

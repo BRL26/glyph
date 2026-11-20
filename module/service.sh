@@ -32,3 +32,15 @@ rm -f /data/local/tmp/glyph-volume.conf \
       /data/local/tmp/glyph-base \
       /data/local/tmp/glyph-volume-target \
       /data/local/tmp/glyph-last-frame
+
+# Auto-start Glyph once Android is up. This runs from KernelSU's late_start
+# service as root, so it does not depend on the BOOT_COMPLETED receiver or on
+# the ROM's background-start restrictions.
+(
+    while [ "$(getprop sys.boot_completed)" != "1" ]; do
+        sleep 2
+    done
+    sleep 6
+    am start-service --user 0 -n dev.brl.glyph/.GlyphService \
+        -a dev.brl.glyph.REFRESH >/dev/null 2>&1
+) &

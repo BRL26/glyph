@@ -19,6 +19,7 @@ public final class GlyphTests {
         frameClaimTests();
         mediaPositionTests();
         effectOrderTests();
+        loopFrameTests();
         spectrumMaskTests();
         defaultsTests();
         spectrumTests();
@@ -535,6 +536,26 @@ public final class GlyphTests {
         check(GlyphEffects.blend(from, target, 2f)[0] == target[0], "blend clamps high");
         check(GlyphEffects.blend(null, target, 0.5f)[0] == 0, "null source is dark");
         check(GlyphEffects.blend(from, null, 0.5f)[0] == 0, "null target is dark");
+    }
+
+    /** Compiled tracks: one-shot alerts stop at the last frame, calls wrap. */
+    private static void loopFrameTests() {
+        check(GlyphEffects.frameIndex(0, 60, 60, false) == 0, "frame index starts at zero");
+        check(GlyphEffects.frameIndex(500, 60, 60, false) == 30, "frame index follows time");
+        check(GlyphEffects.frameIndex(1000, 60, 60, false) == 59,
+                "one-shot track clamps to its last frame");
+        check(GlyphEffects.frameIndex(9000, 60, 60, false) == 59,
+                "one-shot track cannot run past the end");
+        check(GlyphEffects.frameIndex(1000, 60, 60, true) == 0,
+                "looping track wraps to its first frame");
+        check(GlyphEffects.frameIndex(1020, 60, 60, true) == 1,
+                "looping track continues after the wrap");
+        check(GlyphEffects.frameIndex(2500, 60, 60, true) == 30,
+                "looping ringtone repeats in sync with its frames");
+        check(GlyphEffects.frameIndex(-5, 60, 60, false) == 0,
+                "negative time clamps to the first frame");
+        check(GlyphEffects.frameIndex(100, 0, 60, true) == 0, "empty track is safe");
+        check(GlyphEffects.frameIndex(100, 60, 0, true) == 0, "invalid fps is safe");
     }
 
     private static int b(int index) {
