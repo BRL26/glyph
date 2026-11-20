@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Glyph Keeper</title>
+    <style>
+        :root {
+            --bg: #000000;
+            --surface: #121212;
+            --surface-light: #1e1e1e;
+            --accent: #ff2a55; /* Nothing Red */
+            --text-main: #ffffff;
+            --text-muted: #888888;
+            --danger: #d50000;
+            --font-mono: 'Courier New', Courier, monospace;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            margin: 0;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            overflow: hidden;
+            /* Текстура из точек на фоне (как в Nothing OS) */
+            background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        h1 { 
+            font-size: 1.8rem; 
+            margin: 0; 
+            display: flex; 
+            align-items: center; 
+            gap: 12px; 
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        .dot { 
+            width: 14px; height: 14px; border-radius: 50%; 
+            background: var(--accent); 
+            box-shadow: 0 0 15px var(--accent); 
+        }
+        
+        .card {
+            background: var(--surface);
+            border-radius: 20px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            border: 1px solid #222;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        
+        .row { display: flex; gap: 12px; }
+        
+        button {
+            flex: 1;
+            padding: 16px;
+            border: none;
+            border-radius: 14px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
+            background: var(--surface-light);
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 0.9rem;
+            border: 1px solid #333;
+        }
+        button:active { transform: scale(0.95); background: #2a2a2a; }
+        
+        button.primary { 
+            background: var(--text-main); 
+            color: var(--bg); 
+            border-color: var(--text-main);
+        }
+        button.primary:active { background: #cccccc; }
+        
+        button.danger { 
+            background: transparent; 
+            color: var(--accent); 
+            border: 1px solid var(--accent);
+        }
+        button.danger:active { background: rgba(255, 42, 85, 0.1); }
+
+        button.recover { 
+            background: transparent; 
+            color: var(--danger); 
+            border: 1px solid var(--danger);
+        }
+        
+        /* Слайдер */
+        label { 
+            font-size: 0.85rem; 
+            color: var(--text-muted); 
+            text-transform: uppercase; 
+            letter-spacing: 1.5px; 
+            font-weight: 600;
+        }
+        .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        .slider-value {
+            font-family: var(--font-mono);
+            font-size: 1.2rem;
+            color: var(--text-main);
+            min-width: 40px;
+            text-align: right;
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            flex: 1;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 28px;
+            width: 28px;
+            border-radius: 50%;
+            background: var(--text-main);
+            margin-top: -12px;
+            box-shadow: 0 0 10px rgba(255,255,255,0.2);
+            transition: transform 0.1s;
+        }
+        input[type=range]:active::-webkit-slider-thumb {
+            transform: scale(1.2);
+            background: var(--accent);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+        }
+        
+        /* Статус-бар */
+        .status-bar {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--accent);
+            text-align: center;
+            padding: 12px;
+            background: #000;
+            border-radius: 12px;
+            border: 1px solid #222;
+            min-height: 20px;
+            white-space: pre-wrap;
+            transition: color 0.3s;
+        }
+
+        .coming-soon {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px;
+            background: var(--surface-light);
+            border-radius: 14px;
+            opacity: 0.5;
+            cursor: not-allowed;
+            border: 1px dashed #444;
+        }
+        .badge {
+            font-size: 0.7rem; 
+            background: #333; 
+            padding: 4px 8px; 
+            border-radius: 6px; 
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .disclaimer {
+            font-size: 0.75rem;
+            color: #555;
+            text-align: center;
+            margin-top: 10px;
+            line-height: 1.5;
+        }
+        .warning-text { color: var(--accent); font-weight: bold; }
+
+        /* Оверлей дисклеймера */
+        #disclaimer-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.95);
+            backdrop-filter: blur(5px);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 24px;
+            z-index: 9999;
+            text-align: center;
+            transition: opacity 0.3s;
+        }
+        #disclaimer-overlay h2 { 
+            color: var(--accent); 
+            margin-bottom: 16px; 
+            font-size: 1.5rem;
+            letter-spacing: 2px;
+        }
+        #disclaimer-overlay p { 
+            color: #aaa; 
+            font-size: 0.95rem; 
+            line-height: 1.6; 
+            margin-bottom: 30px; 
+            max-width: 350px; 
+        }
+        #disclaimer-overlay button { 
+            background: var(--text-main); 
+            color: var(--bg); 
+            width: 100%; 
+            max-width: 300px; 
+            padding: 18px; 
+            font-size: 1rem;
+            border-radius: 100px; /* Круглая кнопка */
+        }
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div id="disclaimer-overlay">
+        <h2>DISCLAIMER</h2>
+        <p>
+            This module is experimental. By proceeding, you acknowledge that you are using it at your own risk. 
+            The author is <b>not responsible</b> for any damage to your device, LEDs, or software instability.
+            <br><br>
+            The "Force Recover" function restarts the hardware driver and may freeze your device.
+        </p>
+        <button onclick="acceptDisclaimer()">I Understand & Agree</button>
+    </div>
+
+    <h1><div class="dot"></div> Glyph Keeper</h1>
+
+    <div class="card">
+        <div class="row">
+            <button class="primary" onclick="run('start')">Start All</button>
+            <button class="danger" onclick="run('stop')">Stop All</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <label>Brightness Control</label>
+        <div class="slider-container">
+            <input type="range" id="slider" min="0" max="255" value="128" 
+                   oninput="document.getElementById('b-val').textContent=this.value"
+                   onchange="run('brightness ' + this.value)">
+            <span class="slider-value" id="b-val">128</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <label>Animations</label>
+        <div class="row">
+            <button onclick="run('wave')">Play Wave</button>
+        </div>
+    </div>
+
+    <div class="card">
+        <label>Flip to Glyph</label>
+        <div class="row">
+            <button class="primary" onclick="run('flip on')">Enable</button>
+            <button onclick="run('flip off')">Disable</button>
+        </div>
+    </div>
+    
+    <div class="card" style="padding: 0;">
+        <div class="coming-soon">
+            <span>Audio Visualizer</span>
+            <span class="badge">Coming Soon</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <label style="color: var(--danger);">Troubleshooting</label>
+        <button class="recover" onclick="confirmRecover()">Force Recover Driver</button>
+    </div>
+
+    <div class="status-bar" id="status">System Ready</div>
+
+    <div class="disclaimer">
+        <span class="warning-text">WARNING:</span> "Force Recover" restarts the I2C driver. This may cause the device to freeze temporarily. If unresponsive, hold the Power button for 15-30 seconds.
+    </div>
+
+    <script>
+        window.onload = () => {
+            if (localStorage.getItem('glyph_disclaimer_accepted') === 'true') {
+                document.getElementById('disclaimer-overlay').classList.add('hidden');
+                document.body.style.overflow = 'auto';
+                run('status');
+            } else {
+                document.body.style.overflow = 'hidden';
+            }
+        };
+
+        function acceptDisclaimer() {
+            localStorage.setItem('glyph_disclaimer_accepted', 'true');
+            document.getElementById('disclaimer-overlay').classList.add('hidden');
+            document.body.style.overflow = 'auto';
+            run('status');
+        }
+
+        async function run(cmd) {
+            const statusEl = document.getElementById('status');
+            statusEl.style.color = 'var(--text-muted)';
+            statusEl.textContent = `> ${cmd}`;
+            
+            try {
+                let output = '';
+                
+                if (typeof ksuwebui !== 'undefined') {
+                    output = ksuwebui.exec(`/system/bin/glyphctl ${cmd}`);
+                } else if (typeof ksu !== 'undefined') {
+                    return new Promise(resolve => {
+                        ksu.exec(`/system/bin/glyphctl ${cmd}`, '{}', (errno, stdout, stderr) => {
+                            statusEl.style.color = errno !== 0 ? 'var(--danger)' : 'var(--accent)';
+                            statusEl.textContent = errno !== 0 ? `Error: ${stderr}` : (stdout.trim() || 'OK');
+                            resolve();
+                        });
+                    });
+                } else if (typeof exec === 'function') {
+                    const res = await exec(`/system/bin/glyphctl ${cmd}`);
+                    output = res.errno !== 0 ? `Error: ${res.stderr}` : res.stdout.trim();
+                } else {
+                    output = 'Error: no exec bridge found';
+                }
+                
+                statusEl.style.color = 'var(--accent)';
+                statusEl.textContent = output.trim() || 'OK';
+            } catch (e) {
+                statusEl.style.color = 'var(--danger)';
+                statusEl.textContent = `JS Error: ${e.message}`;
+            }
+        }
+
+        function confirmRecover() {
+            if (confirm("WARNING: This will restart the LED driver. The phone may freeze. If it does, hold Power for 15-30s. Continue?")) {
+                run('recover');
+            }
+        }
+    </script>
+</body>
+</html>
